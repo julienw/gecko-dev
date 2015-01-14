@@ -358,10 +358,12 @@ this.ImportExport = {
           yield DOMApplicationRegistry._openPackage(appFile, meta, false);
         let maxStatus = isSigned ? Ci.nsIPrincipal.APP_STATUS_PRIVILEGED
                                  : Ci.nsIPrincipal.APP_STATUS_INSTALLED;
+        let isDevMode = false;
         try {
           // Anything is possible in developer mode.
           if (Services.prefs.getBoolPref("developer.mode")) {
             maxStatus = Ci.nsIPrincipal.APP_STATUS_CERTIFIED;
+            isDevMode = true;
           }
         } catch(e) {};
         meta.appStatus = AppsUtils.getAppManifestStatus(manifest);
@@ -372,12 +374,12 @@ this.ImportExport = {
 
         // Custom origin.
         // We unfortunately can't reuse _checkOrigin here.
-        if (isSigned &&
-            meta.appStatus == Ci.nsIPrincipal.APP_STATUS_PRIVILEGED &&
+        if ((isDevMode || (isSigned &&
+            meta.appStatus == Ci.nsIPrincipal.APP_STATUS_PRIVILEGED)) &&
             manifest.origin) {
           let uri;
           try {
-            uri = Services.io.newURI(aManifest.origin, null, null);
+            uri = Services.io.newURI(manifest.origin, null, null);
           } catch(e) {
             throw "InvalidOrigin";
           }
