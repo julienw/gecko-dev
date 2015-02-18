@@ -301,6 +301,7 @@ struct AllThreadsListType : public AutoCleanLinkedList<thread_info_t>
   }
 };
 static AllThreadsListType sAllThreads;
+static AllThreadsListType sExitingThreads;
 
 /**
  * This mutex protects the access to thread info:
@@ -344,6 +345,13 @@ GetThreadInfoInner(pthread_t threadID) {
     }
   }
 
+  for (thread_info_t *tinfo = sExitingThreads.getFirst();
+       tinfo;
+       tinfo = tinfo->getNext()) {
+    if (pthread_equal(tinfo->origThreadID, threadID)) {
+      return tinfo;
+    }
+  }
   return nullptr;
 }
 
@@ -354,13 +362,11 @@ GetThreadInfoInner(pthread_t threadID) {
  */
 static thread_info_t *
 GetThreadInfo(pthread_t threadID) {
-  if (sIsNuwaProcess) {
-    REAL(pthread_mutex_lock)(&sThreadCountLock);
-  }
+  REAL(pthread_mutex_lock)(&sThreadCountLock);
+
   thread_info_t *tinfo = GetThreadInfoInner(threadID);
-  if (sIsNuwaProcess) {
-    pthread_mutex_unlock(&sThreadCountLock);
-  }
+
+  pthread_mutex_unlock(&sThreadCountLock);
   return tinfo;
 }
 
@@ -597,24 +603,58 @@ thread_info_cleanup(void *arg) {
   pthread_mutex_unlock(&sThreadCountLock);
 }
 
-static void*
-cleaner_thread(void *arg) {
-  thread_info_t *tinfo = (thread_info_t *)arg;
-  pthread_t *thread = sIsNuwaProcess ? &tinfo->origThreadID
-                                     : &tinfo->recreatedThreadID;
-  // Wait until target thread end.
-  while (!pthread_kill(*thread, 0)) {
+static void
+EnsureThreadExited(thread_info_t *tinfo) {
+  pid_t thread = sIsNuwaProcess ? tinfo->origNativeThreadID
+                                     : tinfo->recreatedNativeThreadID;
+  // Wait until the target thread exits. Note that we use tgkill() instead of
+  // pthread_kill() to avoid the race resulting from pthread_t reuse.
+  while (!syscall(__NR_tgkill, getpid(), thread, 0)) {
     sched_yield();
   }
-  thread_info_cleanup(tinfo);
-  return nullptr;
 }
 
 static void
-thread_cleanup(void *arg) {
-  pthread_t thread;
-  REAL(pthread_create)(&thread, nullptr, &cleaner_thread, arg);
-  pthread_detach(thread);
+MaybeCleanupExitingThreads() {
+
+  REAL(pthread_mutex_lock)(&sThreadCountLock);
+  AllThreadsListType exitingThreads;
+  if (sExitingThreads.getFirst()) {
+    exitingThreads.insertBack(sExitingThreads.popFirst());
+  }
+  pthread_mutex_unlock(&sThreadCountLock);
+
+  for (thread_info_t *tinfo = exitingThreads.getFirst();
+       tinfo;
+       tinfo = tinfo->getNext()) {
+    int detachState = 0;
+    if (pthread_getattr_np(tinfo->recreatedThreadID, &tinfo->threadAttr)) {
+      // We fail to get thread attribute. Just skip this thread.
+      continue;
+    }
+
+    if (pthread_attr_getdetachstate(&tinfo->threadAttr, &detachState) ||
+        detachState == PTHREAD_CREATE_JOINABLE) {
+      // We only reap detached threads here. Joinable threads will be reaped
+      // in __wrap_pthread_join();
+      continue;
+    }
+
+    EnsureThreadExited(tinfo);
+    thread_info_cleanup(tinfo);
+  }
+}
+
+static void
+detach_thread_info(void *arg) {
+  REAL(pthread_mutex_lock)(&sThreadCountLock);
+
+  // Detach tinfo from sAllThreads to make it invisible from CUR_THREAD_INFO;
+  thread_info_t *tinfo = (thread_info_t*) arg;
+  tinfo->remove();
+  sExitingThreads.insertBack(tinfo);
+
+  pthread_mutex_unlock(&sThreadCountLock);
 }
 
 static void *
@@ -630,15 +670,7 @@ _thread_create_startup(void *arg) {
   tinfo->origThreadID = REAL(pthread_self)();
   tinfo->origNativeThreadID = gettid();
 
-  pthread_cleanup_push(thread_cleanup, tinfo);
-
   r = tinfo->startupFunc(tinfo->startupArg);
-
-  if (!sIsNuwaProcess) {
-    return r;
-  }
-
-  pthread_cleanup_pop(1);
 
   return r;
 }
@@ -658,10 +690,13 @@ thread_create_startup(void *arg) {
    * _thread_create_startup().  see also thread_create_startup();
    */
   void *r;
+  thread_info_t *tinfo = nullptr;
   volatile uint32_t reserved[STACK_RESERVED_SZ];
 
   // Reserve stack space.
   STACK_SENTINEL(reserved) = STACK_SENTINEL_VALUE(reserved);
+
+  pthread_cleanup_push(detach_thread_info, arg);
 
   r = _thread_create_startup(arg);
 
@@ -670,7 +705,10 @@ thread_create_startup(void *arg) {
     abort();                    // Did not reserve enough stack space.
   }
 
-  thread_info_t *tinfo = CUR_THREAD_INFO;
+  tinfo = CUR_THREAD_INFO;
+
+  pthread_cleanup_pop(1);
+
   if (!sIsNuwaProcess) {
     longjmp(tinfo->retEnv, 1);
 
@@ -689,6 +727,8 @@ __wrap_pthread_create(pthread_t *thread,
   if (!sIsNuwaProcess) {
     return REAL(pthread_create)(thread, attr, start_routine, arg);
   }
+
+  MaybeCleanupExitingThreads();
 
   thread_info_t *tinfo = thread_info_new();
   tinfo->startupFunc = start_routine;
@@ -798,8 +838,21 @@ __wrap_pthread_join(pthread_t thread, void **retval) {
   if (tinfo == nullptr) {
     return REAL(pthread_join)(thread, retval);
   }
-  // pthread_join() need to use the real thread ID in the spawned process.
-  return REAL(pthread_join)(tinfo->recreatedThreadID, retval);
+
+  pthread_t thread_info_t::*threadIDptr =
+        (sIsNuwaProcess ?
+           &thread_info_t::origThreadID :
+           &thread_info_t::recreatedThreadID);
+
+  // pthread_join() uses the origThreadID or recreatedThreadID depending on
+  // whether we are in Nuwa or forked processes.
+  int rc = REAL(pthread_join)(tinfo->*threadIDptr, retval);
+  // We still need to ensure that the thread is dead. Before Android L, bionic
+  // wakes up the pthread_join() call by pthread_cond_signal() so the thread can
+  // still use the stack for some while.
+  EnsureThreadExited(tinfo);
+  thread_info_cleanup(tinfo);
+  return rc;
 }
 
 /**
@@ -1627,6 +1680,8 @@ ForkIPCProcess() {
   int pid;
 
   REAL(pthread_mutex_lock)(&sForkLock);
+
+  MaybeCleanupExitingThreads();
 
   PrepareProtoSockets(sProtoFdInfos, sProtoFdInfosSize);
 
