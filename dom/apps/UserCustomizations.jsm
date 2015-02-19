@@ -51,7 +51,7 @@ function log(aStr) {
 }
 
 this.UserCustomizations = {
-  _debug: false,
+  _debug: true,
   _items: [],
   _loaded : {},   // Keep track per manifestURL of css and scripts loaded.
   _windows: null, // Set of currently opened windows.
@@ -209,15 +209,21 @@ this.UserCustomizations = {
         return;
       }
 
+      debug('will inject ' + aCss)
+
       let uri = Services.io.newURI(aCss, null, null);
       try {
+        debug('loading ' + uri);
         utils.loadSheet(uri, Ci.nsIDOMWindowUtils.AUTHOR_SHEET);
+        debug('loaded ' + uri);
         if (!this._loaded[manifestURL]) {
           this._loaded[manifestURL] = { css: [], scripts: [] };
         }
         this._loaded[manifestURL].css.push({ window: aWindow, uri: uri });
         aInjected.push(aCss);
       } catch(e) {
+        Components.utils.reportError(e);
+        dump(e);
         log("Error loading stylesheet " + aCss + " : " + e);
       }
     });
@@ -245,6 +251,8 @@ this.UserCustomizations = {
         this._loaded[manifestURL].scripts.push({ sandbox: sandbox, uri: aScript });
         aInjected.push(aScript);
       } catch(e) {
+        dump(e);
+        Components.utils.reportError(e);
         log("Error sandboxing " + aScript + " : " + e);
       }
     });
