@@ -232,7 +232,8 @@ this.UserCustomizations = {
     if (aItem.scripts.length > 0) {
       sandbox = Cu.Sandbox([aWindow],
                            { wantComponents: false,
-                             sandboxPrototype: aWindow });
+                             sandboxPrototype: aWindow
+                           });
     }
 
     // Load the scripts using a sandbox.
@@ -244,7 +245,8 @@ this.UserCustomizations = {
       }
 
       try {
-        Services.scriptloader.loadSubScript(aScript, sandbox, "UTF-8");
+        //Services.scriptloader.loadSubScript(aScript, sandbox, "UTF-8");
+        Services.scriptloader.loadSubScript(aScript, aWindow, "UTF-8");
         if (!this._loaded[manifestURL]) {
           this._loaded[manifestURL] = { css: [], scripts: [] };
         }
