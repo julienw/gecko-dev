@@ -546,6 +546,7 @@ let settingsToObserve = {
     prefName: 'nglayout.debug.paint_flashing',
     defaultValue: false
   },
+  'developer.mode' : false,
   'devtools.eventlooplag.threshold': 100,
   'devtools.remote.wifi.visible': {
     resetToPref: true
