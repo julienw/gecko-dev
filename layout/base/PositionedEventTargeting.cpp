@@ -21,8 +21,8 @@
 
 // If debugging this code you may wish to enable this logging, and also
 // uncomment the DumpFrameTree call near the bottom of the file.
-#define PET_LOG(...)
-// #define PET_LOG(...) printf_stderr("PET: " __VA_ARGS__);
+// #define PET_LOG(...)
+#define PET_LOG(...) printf_stderr("PET: " __VA_ARGS__);
 
 namespace mozilla {
 
@@ -443,13 +443,6 @@ FindFrameTargetedByInputEvent(WidgetGUIEvent* aEvent,
   const EventRadiusPrefs* prefs = GetPrefsFor(aEvent->mClass);
   if (!prefs || !prefs->mEnabled) {
     PET_LOG("Retargeting disabled\n");
-    return target;
-  }
-  if (target && IsElementClickable(target, nsGkAtoms::body)) {
-    if (!IsElementClickableAndReadable(target, aEvent, prefs)) {
-      aEvent->AsMouseEventBase()->hitCluster = true;
-    }
-    PET_LOG("Target %p is clickable\n", target);
     return target;
   }
 
