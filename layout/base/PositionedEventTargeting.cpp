@@ -21,8 +21,8 @@
 
 // If debugging this code you may wish to enable this logging, and also
 // uncomment the DumpFrameTree call near the bottom of the file.
-#define PET_LOG(...)
-// #define PET_LOG(...) printf_stderr("PET: " __VA_ARGS__);
+// #define PET_LOG(...)
+#define PET_LOG(...) printf_stderr("PET: " __VA_ARGS__);
 
 namespace mozilla {
 
@@ -78,6 +78,8 @@ struct EventRadiusPrefs
   bool mRepositionEventCoords;
   bool mTouchClusterDetection;
   uint32_t mLimitReadableSize;
+  uint32_t mSmallSurfaceThreshold;
+  uint32_t mSmallSurfaceBonus;
 };
 
 static EventRadiusPrefs sMouseEventRadiusPrefs;
@@ -130,6 +132,13 @@ GetPrefsFor(EventClassID aEventClassID)
 
     nsPrintfCString limitReadableSizePref("ui.zoomedview.limitReadableSize", prefBranch);
     Preferences::AddUintVarCache(&prefs->mLimitReadableSize, limitReadableSizePref.get(), 8);
+
+    nsPrintfCString smallSurfaceThreshold("ui.%s.radius.smallSurfaceThreshold", prefBranch);
+    Preferences::AddUintVarCache(&prefs->mSmallSurfaceThreshold, smallSurfaceThreshold.get(), 400);
+
+    // The value 0 effectively disables this
+    nsPrintfCString smallSurfaceBonus("ui.%s.radius.smallSurfaceBonus", prefBranch);
+    Preferences::AddUintVarCache(&prefs->mSmallSurfaceBonus, smallSurfaceBonus.get(), 50);
   }
 
   return prefs;
@@ -370,6 +379,15 @@ GetClosest(nsIFrame* aRoot, const nsPoint& aPointRelativeToRootFrame,
 
     // distance is in appunits
     float distance = ComputeDistanceFromRegion(aPointRelativeToRootFrame, region);
+
+    const nsSize size = f->GetSize();
+    // Give a chance to small candidates around
+    if (size.width > aPrefs->mSmallSurfaceThreshold &&
+        size.height > aPrefs->mSmallSurfaceThreshold) {
+      // we actually use a penalty instead of a bonus to keep a positive distance
+      distance += aPrefs->mSmallSurfaceBonus;
+    }
+
     nsIContent* content = f->GetContent();
     if (content && content->IsElement() &&
         content->AsElement()->State().HasState(
@@ -443,13 +461,6 @@ FindFrameTargetedByInputEvent(WidgetGUIEvent* aEvent,
   const EventRadiusPrefs* prefs = GetPrefsFor(aEvent->mClass);
   if (!prefs || !prefs->mEnabled) {
     PET_LOG("Retargeting disabled\n");
-    return target;
-  }
-  if (target && IsElementClickable(target, nsGkAtoms::body)) {
-    if (!IsElementClickableAndReadable(target, aEvent, prefs)) {
-      aEvent->AsMouseEventBase()->hitCluster = true;
-    }
-    PET_LOG("Target %p is clickable\n", target);
     return target;
   }
 
