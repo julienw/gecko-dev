@@ -134,11 +134,11 @@ GetPrefsFor(EventClassID aEventClassID)
     Preferences::AddUintVarCache(&prefs->mLimitReadableSize, limitReadableSizePref.get(), 8);
 
     nsPrintfCString smallSurfaceThreshold("ui.%s.radius.smallSurfaceThreshold", prefBranch);
-    Preferences::AddUintVarCache(&prefs->mSmallSurfaceThreshold, smallSurfaceThreshold.get(), 400);
+    Preferences::AddUintVarCache(&prefs->mSmallSurfaceThreshold, smallSurfaceThreshold.get(), 1200);
 
     // The value 0 effectively disables this
     nsPrintfCString smallSurfaceBonus("ui.%s.radius.smallSurfaceBonus", prefBranch);
-    Preferences::AddUintVarCache(&prefs->mSmallSurfaceBonus, smallSurfaceBonus.get(), 50);
+    Preferences::AddUintVarCache(&prefs->mSmallSurfaceBonus, smallSurfaceBonus.get(), 800);
   }
 
   return prefs;
@@ -396,7 +396,7 @@ GetClosest(nsIFrame* aRoot, const nsPoint& aPointRelativeToRootFrame,
       distance *= aPrefs->mVisitedWeight / 100.0f;
     }
     if (distance < bestDistance) {
-      PET_LOG("  candidate %p is the new best\n", f);
+      PET_LOG("  candidate %p is the new best with distance=%f.2\n", f, distance);
       bestDistance = distance;
       bestTarget = f;
     }
