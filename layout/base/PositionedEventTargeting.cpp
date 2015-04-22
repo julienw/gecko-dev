@@ -381,6 +381,7 @@ GetClosest(nsIFrame* aRoot, const nsPoint& aPointRelativeToRootFrame,
     float distance = ComputeDistanceFromRegion(aPointRelativeToRootFrame, region);
 
     const nsSize size = f->GetSize();
+    PET_LOG("  candidate %p has a size width=%i, height=%i\n", f, size.width, size.height);
     // Give a chance to small candidates around
     if (size.width > aPrefs->mSmallSurfaceThreshold &&
         size.height > aPrefs->mSmallSurfaceThreshold) {
