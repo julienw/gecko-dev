@@ -50,7 +50,7 @@ const kMessages =["SystemMessageManager:GetPendingMessages",
                   "child-process-shutdown"];
 
 function debug(aMsg) {
-  // dump("-- SystemMessageInternal " + Date.now() + " : " + aMsg + "\n");
+  dump("-*- SystemMessageInternal " + Date.now() + " : " + aMsg + "\n");
 }
 
 
@@ -71,11 +71,35 @@ function SystemMessageInternal() {
   // list of pending messages for each page here also.
   this._pages = [];
 
-  // The set of listeners. This is a multi-dimensional object. The _listeners
-  // object itself is a map from manifest URL -> an array mapping proccesses to
-  // windows. We do this so that we can track both what processes we have to
-  // send system messages to as well as supporting the single-process case
-  // where we track windows instead.
+  /**
+   * This is the page URL that registered this listener.
+   * @typedef {String} pageURL
+   */
+  /**
+   * Holds the information for a specific pageURL.
+   * @typedef {Object} Window
+   * @property {Number} count Count how many times the pageURL registered.
+   * @property {Set.<String>} types Contains all the types that registered for
+   * a pageURL.
+   */
+  /**
+   * This object contains all the listeners for a specific message manager
+   * target.
+   * @typedef {Object.<pageURL, Window>} Windows
+   */
+  /**
+   * This is the manifest URL for the application registering the listener.
+   * @typedef {String} manifestURL
+   */
+  /**
+   * The set of listeners. This is a multi-dimensional object. The _listeners
+   * object itself is a map from manifest URL -> an array mapping processes to
+   * windows. We do this so that we can track both what
+   * processes we have to send system messages to as well as supporting the
+   * single-process case where we track windows instead.
+   *
+   * @type {Object.<manifestURL, Map<MessageManager, Windows>}
+   */
   this._listeners = {};
 
   this._webappsRegistryReady = false;
@@ -365,19 +389,6 @@ SystemMessageInternal.prototype = {
     aChildMM.sendAsyncMessage("SystemMessageCache:RefreshCache", cache);
   },
 
-  _findTargetIndex: function(aTargets, aTarget) {
-    if (!aTargets || !aTarget) {
-      return -1;
-    }
-    for (let index = 0; index < aTargets.length; ++index) {
-      let target = aTargets[index];
-      if (target.target === aTarget) {
-        return index;
-      }
-    }
-    return -1;
-  },
-
   _isEmptyObject: function(aObj) {
     for (let name in aObj) {
       return false;
@@ -385,40 +396,90 @@ SystemMessageInternal.prototype = {
     return true;
   },
 
+  _addTargetToListener: function(aTarget,
+                                 aManifestURL,
+                                 aPageURL,
+                                 aType) {
+    let targets = this._listeners[aManifestURL];
+    if (!targets) {
+      debug("No targets found for " + aManifestURL + ", creating a new map.");
+      targets = this._listeners[aManifestURL] = new Map();
+    }
+
+    let windows;
+    if (targets.has(aTarget)) {
+      windows = targets.get(aTarget);
+    } else {
+      debug("This aTarget is not found in the map.");
+      windows = {};
+      targets.set(aTarget, windows);
+    }
+
+    let win = windows[aPageURL];
+    if (aType && !win) {
+      debug("XXX " + aPageURL + " not defined yet for this target, this should not happen!");
+    }
+
+    if (!win) {
+      debug(aPageURL + " not defined yet for this target.");
+      win = windows[aPageURL] = {
+        count: 0,
+        types: new Set()
+      };
+    }
+
+    if (aType) {
+      win.types.add(aType);
+    } else {
+      win.count++;
+    }
+  },
+
+  /**
+   * Removes listeners for this target and this pageURL.
+   *
+   * @param {MessageManager} aTarget The MessageManager that requests the unregister.
+   * @param {String} aManifestURL The manifestURL for the application requesting
+   * the unregister.
+   * @param {Boolean} aRemoveAllListeners True if we remove all listeners for
+   * this manifestURL, false if we remove all listeners for this pageURL.
+   * @param {String} aPageUrl The pageURL where we remove these listeners from.
+   *
+   * @returns {Boolean} true if it removed some listeners, false otherwise.
+   */
   _removeTargetFromListener: function(aTarget,
                                       aManifestURL,
-                                      aRemoveListener,
+                                      aRemoveAllListeners,
                                       aPageURL) {
     let targets = this._listeners[aManifestURL];
     if (!targets) {
       return false;
     }
 
-    let index = this._findTargetIndex(targets, aTarget);
-    if (index === -1) {
+    if (!targets.has(aTarget)) {
       return false;
     }
 
-    if (aRemoveListener) {
-      debug("remove the listener for " + aManifestURL);
+    if (aRemoveAllListeners) {
+      debug("remove the listeners for " + aManifestURL);
       delete this._listeners[aManifestURL];
       return true;
     }
 
-    let target = targets[index];
-    if (aPageURL && target.winCounts[aPageURL] !== undefined &&
-        --target.winCounts[aPageURL] === 0) {
-      delete target.winCounts[aPageURL];
+    let winInfos = targets.get(aTarget);
+    if (aPageURL && winInfos[aPageURL] !== undefined &&
+        --winInfos[aPageURL].count <= 0) {
+      delete winInfos[aPageURL];
     }
 
-    if (this._isEmptyObject(target.winCounts)) {
-      if (targets.length === 1) {
+    if (this._isEmptyObject(winInfos)) {
+      if (targets.size() === 1) {
         // If it's the only one, get rid of the entry of manifest URL entirely.
         debug("remove the listener for " + aManifestURL);
         delete this._listeners[aManifestURL];
       } else {
         // If more than one left, remove this one and leave the rest.
-        targets.splice(index, 1);
+        targets.delete(aTarget);
       }
     }
     return true;
@@ -446,34 +507,16 @@ SystemMessageInternal.prototype = {
     switch(aMessage.name) {
       case "SystemMessageManager:AskReadyToRegister":
         return true;
-        break;
       case "SystemMessageManager:Register":
       {
-        debug("Got Register from " + msg.pageURL + " @ " + msg.manifestURL);
-        let pageURL = msg.pageURL;
-        let targets, index;
-        if (!(targets = this._listeners[msg.manifestURL])) {
-          let winCounts = {};
-          winCounts[pageURL] = 1;
-          this._listeners[msg.manifestURL] = [{ target: aMessage.target,
-                                                winCounts: winCounts }];
-        } else if ((index = this._findTargetIndex(targets,
-                                                  aMessage.target)) === -1) {
-          let winCounts = {};
-          winCounts[pageURL] = 1;
-          targets.push({ target: aMessage.target,
-                         winCounts: winCounts });
-        } else {
-          let winCounts = targets[index].winCounts;
-          if (winCounts[pageURL] === undefined) {
-            winCounts[pageURL] = 1;
-          } else {
-            winCounts[pageURL]++;
-          }
-        }
+        let { target, manifestURL, pageURL, type } = msg;
+        debug("Got Register for " + type +
+              " from " + pageURL + " @ " + manifestURL);
 
-        this._refreshCacheInternal(aMessage.target, msg.manifestURL);
-        debug("listeners for " + msg.manifestURL +
+        this._addTargetToListener(target, manifestURL, pageURL, type);
+        this._refreshCacheInternal(target, manifestURL);
+
+        debug("listeners for " + manifestURL +
               " innerWinID " + msg.innerWindowID);
         break;
       }
@@ -551,7 +594,6 @@ SystemMessageInternal.prototype = {
         }
 
         return page.pendingMessages.length != 0;
-        break;
       }
       case "SystemMessageManager:Message:Return:OK":
       {
@@ -767,17 +809,15 @@ SystemMessageInternal.prototype = {
     let cache = this._findCacheForApp(aManifestURL);
     let targets = this._listeners[aManifestURL];
     if (targets) {
-      for (let index = 0; index < targets.length; ++index) {
-        let target = targets[index];
-        let manager = target.target;
-
+      for (let [ manager, windows ] of targets) {
         // Ensure hasPendingMessage cache is refreshed before we open app
         manager.sendAsyncMessage("SystemMessageCache:RefreshCache", cache);
 
         // We only need to send the system message to the targets (processes)
         // which contain the window page that matches the manifest/page URL of
         // the destination of system message.
-        if (target.winCounts[aPageURL] === undefined) {
+        if (windows[aPageURL] === undefined) {
+          debug("Application " + aManifestURL + " is launched and has listeners but not on page " + aPageURL);
           continue;
         }
 
@@ -855,6 +895,6 @@ SystemMessageInternal.prototype = {
 
   QueryInterface: XPCOMUtils.generateQI([Ci.nsISystemMessagesInternal,
                                          Ci.nsIObserver])
-}
+};
 
 this.NSGetFactory = XPCOMUtils.generateNSGetFactory([SystemMessageInternal]);

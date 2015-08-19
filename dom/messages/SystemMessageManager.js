@@ -19,8 +19,11 @@ XPCOMUtils.defineLazyServiceGetter(this, "cpmm",
                                    "@mozilla.org/childprocessmessagemanager;1",
                                    "nsISyncMessageSender");
 
+XPCOMUtils.defineLazyModuleGetter(this, "PromiseUtils",
+                                  "resource://gre/modules/PromiseUtils.jsm");
+
 function debug(aMsg) {
-   // dump("-- SystemMessageManager " + Date.now() + " : " + aMsg + "\n");
+   dump("-*- SystemMessageManager " + Date.now() + " : " + aMsg + "\n");
 }
 
 // Implementation of the DOM API for system messages
@@ -39,8 +42,12 @@ function SystemMessageManager() {
   // Pending messages for this page, keyed by message type.
   this._pendings = {};
 
-  // Flag to specify if this process has already registered the manifest URL.
-  this._registerManifestURLReady = false;
+  /**
+   * This map contains flags to specify if this process has already registered
+   * this system message for this type.
+   * @type {Map.<String, boolean>}
+   */
+  this._registeredTypes = new Map();
 
   // Used to know if the promise has to be accepted or not.
   this._isHandling = false;
@@ -169,14 +176,18 @@ SystemMessageManager.prototype = {
       return;
     }
 
-    // Last registered handler wins.
-    dispatchers[aType] = { handler: aHandler, messages: [], isHandling: false };
+    this._registerType(aType).then(() => {
+      // Last registered handler wins.
+      dispatchers[aType] = { handler: aHandler,
+                             messages: [],
+                             isHandling: false };
 
-    // Ask for the list of currently pending messages.
-    cpmm.sendAsyncMessage("SystemMessageManager:GetPendingMessages",
-                          { type: aType,
-                            pageURL: this._pageURL,
-                            manifestURL: this._manifestURL });
+      // Ask for the list of currently pending messages.
+      cpmm.sendAsyncMessage("SystemMessageManager:GetPendingMessages",
+                            { type: aType,
+                              pageURL: this._pageURL,
+                              manifestURL: this._manifestURL });
+    });
   },
 
   mozHasPendingMessage: function(aType) {
@@ -343,45 +354,61 @@ SystemMessageManager.prototype = {
     // 1. This is asked by a child process (parent process must be ready).
     // 2. Parent process has already constructed the |SystemMessageInternal|.
     // Otherwise, delay to do it when the |SystemMessageInternal| is ready.
-    let readyToRegister = true;
+
+    let defer = this._readyToRegisterDefer = PromiseUtils.defer();
+
     if (this._isParentProcess) {
       let ready = cpmm.sendSyncMessage(
         "SystemMessageManager:AskReadyToRegister", null);
-      if (ready.length == 0 || !ready[0]) {
-        readyToRegister = false;
+      if (ready[0]) {
+        defer.resolve();
       }
-    }
-    if (readyToRegister) {
-      this._registerManifestURL();
+    } else {
+      defer.resolve();
     }
 
-    debug("done");
+    defer.promise.then(() => {
+      cpmm.sendAsyncMessage("SystemMessageManager:Register",
+                            { manifestURL: this._manifestURL,
+                              pageURL: this._pageURL,
+                              innerWindowID: this.innerWindowID });
+      debug("done");
+    });
   },
 
   observe: function(aSubject, aTopic, aData) {
     if (aTopic === kSystemMessageInternalReady) {
-      this._registerManifestURL();
+      // This message happens only once.
+      Services.obs.removeObserver(this, kSystemMessageInternalReady);
+      this._readyToRegisterDefer.resolve();
     }
 
     // Call the DOMRequestIpcHelper.observe method.
     this.__proto__.__proto__.observe.call(this, aSubject, aTopic, aData);
   },
 
-  _registerManifestURL: function() {
+  _registerType: function(aType) {
+    debug("_registerType(" + aType + ")");
+
     if (this._isInBrowserElement) {
       debug("the app loaded in the browser doesn't need to register " +
             "the manifest URL for listening to the system messages");
-      return;
+      return Promise.resolve();
     }
 
-    if (!this._registerManifestURLReady) {
-      cpmm.sendAsyncMessage("SystemMessageManager:Register",
-                            { manifestURL: this._manifestURL,
-                              pageURL: this._pageURL,
-                              innerWindowID: this.innerWindowID });
+    if (!this._registeredTypes.has(aType)) {
+      this._registeredTypes.set(aType, true);
 
-      this._registerManifestURLReady = true;
+      return this._readyToRegisterDefer.promise.then(() => {
+        cpmm.sendAsyncMessage("SystemMessageManager:Register",
+                              { manifestURL: this._manifestURL,
+                                pageURL: this._pageURL,
+                                type: aType,
+                                innerWindowID: this.innerWindowID });
+      });
     }
+
+    return Promise.resolve();
   },
 
   classID: Components.ID("{bc076ea0-609b-4d8f-83d7-5af7cbdc3bb2}"),
@@ -390,6 +417,6 @@ SystemMessageManager.prototype = {
                                          Ci.nsIDOMGlobalPropertyInitializer,
                                          Ci.nsIObserver,
                                          Ci.nsISupportsWeakReference])
-}
+};
 
 this.NSGetFactory = XPCOMUtils.generateNSGetFactory([SystemMessageManager]);
