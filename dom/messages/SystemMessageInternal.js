@@ -858,7 +858,7 @@ SystemMessageInternal.prototype = {
 
   _resolvePendingPromises: function(aMessageID) {
     if (!this._pendingPromises.has(aMessageID)) {
-      debug("Unknown pendingPromise messageID. This seems a bug!!");
+      debug("Unknown pendingPromise messageID. This seems a bug, unless we broadcasted the message.");
       return;
     }
 
@@ -871,7 +871,7 @@ SystemMessageInternal.prototype = {
 
   _rejectPendingPromises: function(aMessageID) {
     if (!this._pendingPromises.has(aMessageID)) {
-      debug("Unknown pendingPromise messageID. This seems a bug!!");
+      debug("Unknown pendingPromise messageID. This seems a bug, unless we broadcasted the message.");
       return;
     }
 
