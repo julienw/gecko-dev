@@ -809,17 +809,27 @@ SystemMessageInternal.prototype = {
     let cache = this._findCacheForApp(aManifestURL);
     let targets = this._listeners[aManifestURL];
     if (targets) {
-      for (let [ manager, windows ] of targets) {
+      let targetEntries = targets.entries();
+
+      // 1. Find an existing window for this pageURL.
+      let potentialTargets = targetEntries.filter(
+        ([_, windows]) => window[aPageURL]
+      );
+
+      if (!potentialTargets.length) {
+        // 2. or an existing window that registered the requested type.
+        potentialTargets = targetEntries.filter(([_, windows]) => {
+          return Object.keys(windows).some(
+            pageUrl => windows[pageUrl].types.has(aType)
+          );
+        });
+      }
+
+      if (potentialTargets.length) {
+        let manager = potentialTargets[0][0]; // map key for the first entry
+
         // Ensure hasPendingMessage cache is refreshed before we open app
         manager.sendAsyncMessage("SystemMessageCache:RefreshCache", cache);
-
-        // We only need to send the system message to the targets (processes)
-        // which contain the window page that matches the manifest/page URL of
-        // the destination of system message.
-        if (windows[aPageURL] === undefined) {
-          debug("Application " + aManifestURL + " is launched and has listeners but not on page " + aPageURL);
-          continue;
-        }
 
         appPageIsRunning = true;
         // We need to acquire a CPU wake lock for that page and expect that
