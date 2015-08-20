@@ -473,7 +473,7 @@ SystemMessageInternal.prototype = {
     }
 
     if (this._isEmptyObject(winInfos)) {
-      if (targets.size() === 1) {
+      if (targets.size === 1) {
         // If it's the only one, get rid of the entry of manifest URL entirely.
         debug("remove the listener for " + aManifestURL);
         delete this._listeners[aManifestURL];
@@ -509,12 +509,12 @@ SystemMessageInternal.prototype = {
         return true;
       case "SystemMessageManager:Register":
       {
-        let { target, manifestURL, pageURL, type } = msg;
+        let { manifestURL, pageURL, type } = msg;
         debug("Got Register for " + type +
               " from " + pageURL + " @ " + manifestURL);
 
-        this._addTargetToListener(target, manifestURL, pageURL, type);
-        this._refreshCacheInternal(target, manifestURL);
+        this._addTargetToListener(aMessage.target, manifestURL, pageURL, type);
+        this._refreshCacheInternal(aMessage.target, manifestURL);
 
         debug("listeners for " + manifestURL +
               " innerWinID " + msg.innerWindowID);
@@ -809,11 +809,11 @@ SystemMessageInternal.prototype = {
     let cache = this._findCacheForApp(aManifestURL);
     let targets = this._listeners[aManifestURL];
     if (targets) {
-      let targetEntries = targets.entries();
+      let targetEntries = [...targets];
 
       // 1. Find an existing window for this pageURL.
       let potentialTargets = targetEntries.filter(
-        ([_, windows]) => window[aPageURL]
+        ([_, windows]) => windows[aPageURL]
       );
 
       if (!potentialTargets.length) {
