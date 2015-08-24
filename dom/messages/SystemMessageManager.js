@@ -314,6 +314,8 @@ SystemMessageManager.prototype = {
       }, this);
 
     } else {
+      debug("No handler is registered in manifestURL = " + this._manifestURL +
+            " and pageURL = " + this._pageURL);
       // Since no handlers are registered, we need to notify the parent as if
       // all the queued system messages have been handled (notice |handledCount:
       // messages.length|), so the parent can release the CPU wake lock it took

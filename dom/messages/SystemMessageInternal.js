@@ -812,21 +812,26 @@ SystemMessageInternal.prototype = {
       let targetEntries = [...targets];
 
       // 1. Find an existing window for this pageURL.
-      let potentialTargets = targetEntries.filter(
+      let potentialTarget = targetEntries.find(
         ([_, windows]) => windows[aPageURL]
       );
 
-      if (!potentialTargets.length) {
+      if (!potentialTarget) {
         // 2. or an existing window that registered the requested type.
-        potentialTargets = targetEntries.filter(([_, windows]) => {
-          return Object.keys(windows).some(
-            pageUrl => windows[pageUrl].types.has(aType)
+        for (let [ manager, windows ] of targets) {
+          let pageURL = Object.keys(windows).find(
+            pageURL => windows[pageURL].types.has(aType)
           );
-        });
+          if (pageURL) {
+            aPageURL = pageURL;
+            potentialTarget = [ manager, windows ];
+            break;
+          }
+        }
       }
 
-      if (potentialTargets.length) {
-        let manager = potentialTargets[0][0]; // map key for the first entry
+      if (potentialTarget) {
+        let manager = potentialTarget[0]; // get the map key
 
         // Ensure hasPendingMessage cache is refreshed before we open app
         manager.sendAsyncMessage("SystemMessageCache:RefreshCache", cache);
