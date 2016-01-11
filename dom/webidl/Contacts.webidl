@@ -98,7 +98,7 @@ interface mozContact {
   void init(optional ContactProperties properties);
 
   [ChromeOnly]
-  void setMetadata(DOMString id, Date? published, Date? updated);
+  void setMetadata(DOMString id, optional Date published, optional Date updated);
 
   jsonifier;
 };

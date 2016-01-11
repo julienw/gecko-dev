@@ -41,6 +41,7 @@ function Contact() { }
 
 Contact.prototype = {
   __init: function(aProp) {
+    this.id = "";
     for (let prop in aProp) {
       this[prop] = aProp[prop];
     }
@@ -319,10 +320,11 @@ ContactManager.prototype = {
     let requestID = this.getRequestId({request: request});
 
     let reason;
-    if (aContact.id == "undefined") {
+    if (!aContact.id) {
       // for example {25c00f01-90e5-c545-b4d4-21E2ddbab9e0} becomes
       // 25c00f0190e5c545b4d421E2ddbab9e0
-      aContact.id = this._getRandomId().replace(/[{}-]/g, "");
+      let newId = this._getRandomId().replace(/[{}-]/g, "");
+      aContact.setMetadata(newId);
       // Cache the contact so that its ID may be updated later if necessary
       this._cachedContacts[requestID] = aContact;
       reason = "create";

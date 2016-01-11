@@ -1123,6 +1123,12 @@ var steps = [
   },
   clearDatabase,
   function () {
+    info("undefined id");
+    var c = new mozContact();
+    ise(c.id, "");
+    next();
+  },
+  function () {
     ok(true, "all done!\n");
     SimpleTest.finish();
   }
