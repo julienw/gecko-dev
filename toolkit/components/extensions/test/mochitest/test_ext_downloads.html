@@ -14,15 +14,19 @@
 "use strict";
 
 function backgroundScript() {
+  function download(url) {
+    return new Promise(resolve => {
+      browser.downloads.download({ url }, resolve);
+    });
+  }
+
   browser.test.assertTrue(!!browser.downloads, '`downloads` API is present.');
   browser.test.assertTrue(!!browser.downloads.download, '`downloads.download` API is present.');
-  browser.downloads.download(
-    { url: 'www.google.fr' },
-    (id) => {
-      browser.test.assertTrue(typeof id === "number", `id '${id}' is a number`);
-      browser.test.notifyPass("downloads");
-    }
-  );
+  download('www.google.fr').then(id => {
+    browser.test.assertTrue(typeof id === "number", `id '${id}' is a number`);
+  }).then(() => {
+    browser.test.notifyPass("downloads tests");
+  });
 }
 
 let extensionData = {
@@ -36,7 +40,7 @@ add_task(function* test_downloads() {
   let extension = ExtensionTestUtils.loadExtension(extensionData);
   yield extension.startup();
   info("extension loaded");
-  yield extension.awaitFinish("downloads");
+  yield extension.awaitFinish("downloads tests");
   yield extension.unload();
   info("extension unloaded");
 });
