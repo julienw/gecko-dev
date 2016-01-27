@@ -173,7 +173,11 @@ var Management = {
 
     for (let api of apis) {
       if (api.permission) {
-        if (!extension.hasPermission(api.permission)) {
+        let permissions = api.permission;
+        if (!Array.isArray(permissions)) {
+          permissions = [ permissions ];
+        }
+        if (!permissions.every(permission => extension.hasPermission(permission))) {
           continue;
         }
       }

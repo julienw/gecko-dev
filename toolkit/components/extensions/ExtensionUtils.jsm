@@ -295,16 +295,17 @@ LocaleData.prototype = {
 // hasListener methods. |context| is an add-on scope (either an
 // ExtensionPage in the chrome process or ExtensionContext in a
 // content process). |name| is for debugging. |register| is a function
-// to register the listener. |register| is only called once, event if
+// to register the listener. |register| is only called once, even if
 // multiple listeners are registered. |register| should return an
-// unregister function that will unregister the listener.
+// unregister function that will unregister the listener. It can also return a
+// promise with the unregister function as value.
 function EventManager(context, name, register) {
   this.context = context;
   this.name = name;
   this.register = register;
   this.unregister = null;
   this.callbacks = new Set();
-  this.registered = false;
+  this.registering = null;
 }
 
 EventManager.prototype = {
@@ -314,27 +315,25 @@ EventManager.prototype = {
       return;
     }
 
-    if (!this.registered) {
+    if (!this.registering) {
       this.context.callOnClose(this);
 
       let fireFunc = this.fire.bind(this);
       let fireWithoutClone = this.fireWithoutClone.bind(this);
       fireFunc.withoutClone = fireWithoutClone;
-      this.unregister = this.register(fireFunc);
-      this.registered = true;
+      this.registering = Promise.resolve(this.register(fireFunc));
     }
     this.callbacks.add(callback);
   },
 
   removeListener(callback) {
-    if (!this.registered) {
+    if (!this.registering) {
       return;
     }
 
     this.callbacks.delete(callback);
     if (this.callbacks.length == 0) {
-      this.unregister();
-
+      this.registering.then((unregister) => unregister && unregister());
       this.context.forgetOnClose(this);
     }
   },
@@ -356,7 +355,7 @@ EventManager.prototype = {
   },
 
   close() {
-    this.unregister();
+    this.registering.then(unregister => unregister && unregister());
   },
 
   api() {
