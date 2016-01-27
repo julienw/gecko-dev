@@ -18,7 +18,7 @@ docshell/**
 dom/**
 editor/**
 embedding/**
-extensions/**
+/extensions/**
 gfx/**
 gradle/**
 hal/**
