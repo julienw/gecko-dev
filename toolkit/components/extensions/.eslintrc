@@ -178,9 +178,6 @@
     // No trailing whitespace
     "no-trailing-spaces": 2,
 
-    // No using undeclared variables
-    "no-undef": 2,
-
     // Error on newline where a semicolon is needed
     "no-unexpected-multiline": 2,
 
@@ -390,12 +387,6 @@
     // single line of code to have only one easily predictable effect.
     "no-return-assign": 2,
 
-    // Don't warn about declaration of variables already declared in the outer scope.
-    "no-shadow": 0,
-
-    // Disallow shadowing of names such as arguments.
-    "no-shadow-restricted-names": 2,
-
     // Allow use of synchronous methods (not a node environment).
     "no-sync": 0,
 
@@ -454,9 +445,6 @@
     // Anyway, one-var is disabled.
     "sort-vars": 0,
 
-    // Require a space after keywords.
-    "space-after-keywords": [1, "always"],
-
     // Require a space immediately following the // in a line comment.
     "spaced-comment": [2, "always"],
 
@@ -490,9 +478,6 @@
 
     // Disallow labels that share a name with a variable
     "no-label-var": 2,
-
-    // Disallow negation of the left operand of an in expression
-    "no-negated-in-lhs": 2,
 
     // Disallow creating new instances of String, Number, and Boolean
     "no-new-wrappers": 2,
