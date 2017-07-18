@@ -82,7 +82,7 @@ ContentProcessSingleton.prototype = {
           try {
             // If the argument is clonable, then send it as-is. If
             // cloning fails, fall back to the unavailable string.
-            arg = Cu.cloneInto(arg, {});
+            arg = new StructuredCloneHolder(arg);
           } catch (e) {
             arg = unavailString;
           }
